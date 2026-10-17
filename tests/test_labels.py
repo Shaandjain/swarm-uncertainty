@@ -10,12 +10,12 @@ GOLD = [
 ]
 
 
-def decision(i, tool, args=None):
+def decision(i, tool, args=None, kind="write"):
     return DecisionRecord(
         task_id="t",
         trial=0,
         decision_index=i,
-        decision_type="write",
+        decision_type=kind,
         k_workers=1,
         n_samples=5,
         models={},
@@ -72,3 +72,13 @@ def test_decisions_after_the_first_wrong_one_are_flagged():
 
 def test_transfer_not_in_gold_is_wrong():
     assert labels([decision(0, "transfer_to_human_agents", {"summary": "x"})]) == [(1, False)]
+
+
+def test_a_plan_takes_the_label_of_the_action_that_follows():
+    wrong = {"order_id": "#W2", "reason": "no longer needed"}
+    records = [
+        decision(0, "cancel_pending_order", CANCEL_W1, kind="plan"),
+        decision(1, "cancel_pending_order", wrong),
+        decision(2, "cancel_pending_order", CANCEL_W1, kind="plan"),
+    ]
+    assert labels(records) == [(1, False), (1, False), (None, True)]

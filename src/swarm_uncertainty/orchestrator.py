@@ -109,8 +109,10 @@ class Orchestrator:
         task_id: str,
         trial: int,
         given: Sequence[Proposal] = (),
+        shadow: bool = False,
     ) -> Decision:
-        """`given` are proposals already drawn for worker 0; they count toward its N."""
+        """`given` are proposals already drawn for worker 0; they count toward its N.
+        A shadow decision is measured and recorded but never escalated."""
         started = time.monotonic()
         usage = Usage()
         by_worker = self._sample(packet, usage, given)
@@ -118,7 +120,7 @@ class Orchestrator:
         u = pooled_uncertainty(by_worker)
         d = disagreement(by_worker)
         would_escalate = u >= self.threshold
-        can_escalate = self.escalate and self._escalations < self.max_escalations
+        can_escalate = not shadow and self.escalate and self._escalations < self.max_escalations
 
         answer: OracleAnswer | None = None
         escalated = False

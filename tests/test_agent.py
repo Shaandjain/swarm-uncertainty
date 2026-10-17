@@ -34,13 +34,19 @@ def env():
     return registry.get_env_constructor("retail")()
 
 
-def agent_with(env, monkeypatch, first, samples, **orch):
+def agent_with(env, monkeypatch, first, samples, probe_plans=False, **orch):
     monkeypatch.setattr("tau2.agent.llm_agent.generate", lambda **_: first)
     writes = write_tool_names(env.get_tools())
     worker = FakeLLM([proposal_from_message(m, writes, "w0") for m in samples])
     orchestrator = Orchestrator([worker], **{"threshold": 0.5, **orch})
     agent = SamplingAgent(
-        env.get_tools(), env.get_policy(), "fake", orchestrator, task_id="t", trial=0
+        env.get_tools(),
+        env.get_policy(),
+        "fake",
+        orchestrator,
+        task_id="t",
+        trial=0,
+        probe_plans=probe_plans,
     )
     return agent, worker
 
@@ -89,3 +95,32 @@ class TestSamplingAgent:
         assert record.decision_type == "write"
         assert record.chosen_tool == RESPOND_TOOL
         assert record.pooled_uncertainty == pytest.approx(0.4)
+
+
+class TestPlanProbe:
+    def test_reply_that_leads_to_a_write_is_scored_but_sent_as_is(self, env, monkeypatch):
+        plan = reply("I'll cancel #W1 because you no longer need it. Shall I go ahead?")
+        cancel = call("cancel_pending_order", **CANCEL)
+        other = call("cancel_pending_order", order_id="#W2", reason="no longer needed")
+        # gate, then four samples that reply and act after the yes, then one that acts at once
+        script = [cancel] + [plan, cancel] * 3 + [plan, other] + [cancel]
+        agent, worker = agent_with(env, monkeypatch, plan, script, probe_plans=True, n_samples=5)
+        assert step(agent).content == plan.content
+        assert len(worker.calls) == 10
+        assert worker.calls[0][0].messages[-1].content == "Yes, please go ahead."
+        record = agent.records[0]
+        assert record.decision_type == "plan" and not record.escalated
+        assert record.cluster_sizes == [4, 1]
+        assert record.pooled_uncertainty == pytest.approx(0.2)
+
+    def test_reply_that_leads_nowhere_is_not_a_plan(self, env, monkeypatch):
+        ask = reply("Which order?")
+        agent, worker = agent_with(env, monkeypatch, ask, [ask], probe_plans=True, n_samples=5)
+        assert step(agent).content == ask.content
+        assert len(worker.calls) == 1 and agent.records == []
+
+    def test_off_by_default(self, env, monkeypatch):
+        ask = reply("Shall I cancel #W1?")
+        agent, worker = agent_with(env, monkeypatch, ask, [], n_samples=5)
+        step(agent)
+        assert worker.calls == [] and agent.records == []

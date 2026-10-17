@@ -1,7 +1,8 @@
 """Pilot numbers for RQ1: uv run python scripts/pilot.py runs/s1 [runs/s0]
 
 Prints to the terminal. Decisions after the first wrong write in an episode are left out of
-the RQ1 numbers (first-divergence rule).
+the RQ1 numbers (first-divergence rule). Plan decisions (configs with plan_probe) are scored
+separately from actions.
 """
 
 import argparse
@@ -35,8 +36,13 @@ def outcome_summary(run: Path) -> None:
     print(f"  cost per episode ${sum(cost) / len(cost):.4f}, total ${sum(cost):.2f}")
 
 
-def rq1(run: Path) -> None:
-    records = list(read_records(run / "decisions.jsonl"))
+def rq1(run: Path, plans: bool = False) -> None:
+    records = [
+        r for r in read_records(run / "decisions.jsonl") if (r.decision_type == "plan") == plans
+    ]
+    if plans and not records:
+        return
+    print("  at the plan:" if plans else "  at the action:")
     labelled = [
         r for r in records if r.step_label is not None and not r.extra.get("after_divergence")
     ]
@@ -79,6 +85,7 @@ def main() -> int:
     for run in args.runs:
         outcome_summary(run)
         rq1(run)
+        rq1(run, plans=True)
         print()
     return 0
 

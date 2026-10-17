@@ -28,6 +28,8 @@ class RunConfig:
     task_ids: tuple[str, ...] = ()
     spend_cap_usd: float = 0.0
     seed: int = 0
+    plan_probe: bool = False
+    """Also measure agreement at replies that put a write to the user (shadow only)."""
     notes: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -38,6 +40,8 @@ class RunConfig:
             raise ValueError("threshold must be in [0, 1]")
         if len(self.worker_models) != self.k_workers:
             raise ValueError("worker_models must list exactly k_workers models")
+        if self.plan_probe and self.k_workers != 1:
+            raise ValueError("plan_probe supports one worker")
         if self.escalate and self.oracle == "none":
             raise ValueError("escalate=true needs an oracle")
 

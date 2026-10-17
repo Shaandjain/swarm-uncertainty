@@ -1,0 +1,19 @@
+# s1, plus agreement measured at replies that put a write to the user (shadow mode).
+name: s3
+domain: retail
+split: train
+k_workers: 1
+n_samples: 5
+threshold: 0.4
+escalate: false
+oracle: none
+plan_probe: true
+orchestrator_model: claude-haiku-5-5
+worker_models:
+  - claude-haiku-5-5
+user_model: gpt-4.1-2025-04-14
+temperature: 1.0
+trials: 2
+max_escalations_per_task: 3
+spend_cap_usd: 25
+seed: 0

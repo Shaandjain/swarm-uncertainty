@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-DecisionType = Literal["write", "transfer", "end"]
+DecisionType = Literal["write", "transfer", "end", "plan"]
 
 
 @dataclass

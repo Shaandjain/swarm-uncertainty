@@ -67,6 +67,7 @@ def run_episode(
         task_id=task.id,
         trial=trial,
         llm_args={"temperature": cfg.temperature},
+        probe_plans=cfg.plan_probe,
     )
     user = build_user(
         "user_simulator",
