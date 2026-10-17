@@ -4,7 +4,8 @@ With no arguments, every directory under runs/ that has an episodes.jsonl. The d
 rebuilt from scratch each time. A run is named by its path under runs/, e.g. "pilot/s1".
 
 Tables: runs, episodes, decisions, proposals (every sample at every decision point) and
-messages (the full conversation of every episode, from sims/).
+messages (the full conversation of every episode, from sims/), and replays (from
+scripts/replay.py, where a run has them).
 """
 
 import argparse
@@ -38,6 +39,11 @@ CREATE TABLE messages (
     run TEXT, task_id TEXT, trial INTEGER, message_index INTEGER, turn_idx INTEGER, role TEXT,
     content TEXT, tool_calls TEXT, tool_call_id TEXT, error INTEGER, cost REAL, timestamp TEXT,
     PRIMARY KEY (run, task_id, trial, message_index)
+);
+CREATE TABLE replays (
+    run TEXT, task_id TEXT, trial INTEGER, decision_index INTEGER, sample_index INTEGER,
+    effort TEXT, original_tool TEXT, original_args TEXT, thinking TEXT, content TEXT, tool TEXT, args TEXT,
+    same_as_original INTEGER, matches_gold INTEGER, cost_usd REAL
 );
 CREATE INDEX proposals_decision ON proposals (run, task_id, trial, decision_index);
 """
@@ -84,6 +90,19 @@ def load_run(db: sqlite3.Connection, run: Path) -> None:
                 for i, p in enumerate(r["proposals"])
             ],
         )
+    db.executemany(
+        "INSERT INTO replays VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            (
+                name, r["task_id"], r["trial"], r["decision_index"], r["sample_index"],
+                r["effort"], r["original_tool"], json.dumps(r["original_args"]), r["thinking"], r["content"],
+                r["tool"], json.dumps(r["args"]), r["same_as_original"], r["matches_gold"],
+                r["cost_usd"],
+            )
+            for replay in sorted(run.glob("replay-*.jsonl"))
+            for r in jsonl(replay)
+        ],
+    )  # fmt: skip
     for sim in sorted((run / "sims").glob("*.json")):
         s = json.loads(sim.read_text(encoding="utf-8"))
         trial = int(sim.stem.rsplit("_", 1)[1])  # tau2 leaves the sim's own trial field empty
@@ -114,7 +133,7 @@ def main() -> int:
             load_run(db, run)
         counts = {
             t: db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-            for t in ("runs", "episodes", "decisions", "proposals", "messages")
+            for t in ("runs", "episodes", "decisions", "proposals", "messages", "replays")
         }
     print(f"{args.db}: " + ", ".join(f"{n} {t}" for t, n in counts.items()))
     return 0
