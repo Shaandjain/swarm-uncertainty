@@ -14,6 +14,14 @@ from typing import Any
 STOP_TOOL = "__stop__"
 """Pseudo-tool name for the proposal "end the task now"."""
 
+RESPOND_TOOL = "__respond__"
+"""Pseudo-tool name for a plain reply. All replies share one cluster, whatever they say."""
+
+TRANSFER_TOOLS = frozenset({"transfer_to_human_agents", "request_human_agent_transfer"})
+
+READ_PREFIX = "read:"
+"""Reads cluster by tool name only: which lookup to make next is the choice, not its arguments."""
+
 
 @dataclass(frozen=True)
 class Proposal:
@@ -23,10 +31,29 @@ class Proposal:
     args: dict[str, Any] = field(default_factory=dict)
     reason: str = ""
     worker_id: str = "w0"
+    message: Any = field(default=None, compare=False, repr=False)
+    """The model message this proposal came from, so the chosen one can be sent as is."""
 
     @property
     def key(self) -> str:
         return action_key(self.tool, self.args)
+
+
+def proposal_from_message(message: Any, write_tools: frozenset[str], worker_id: str) -> Proposal:
+    """Map a tau2 AssistantMessage to a Proposal.
+
+    A message with tool calls is keyed on its first write or transfer call if it has one, else
+    its first call. Writes and transfers keep their arguments; reads keep only the tool name.
+    A message with no tool calls is a reply.
+    """
+    calls = message.tool_calls or []
+    if not calls:
+        return Proposal(RESPOND_TOOL, {}, message.content or "", worker_id, message)
+    acting = write_tools | TRANSFER_TOOLS
+    call = next((c for c in calls if c.name in acting), calls[0])
+    if call.name in acting:
+        return Proposal(call.name, dict(call.arguments), message.content or "", worker_id, message)
+    return Proposal(READ_PREFIX + call.name, {}, message.content or "", worker_id, message)
 
 
 def normalize_value(value: Any) -> Any:

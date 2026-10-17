@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
-from swarm_uncertainty.actions import Proposal
+from swarm_uncertainty.actions import Proposal, proposal_from_message
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,10 @@ class DecisionPacket:
     conversation: tuple[dict[str, Any], ...]
     tool_results: tuple[dict[str, Any], ...] = ()
     question: str = "Propose the single next action."
+    messages: tuple[Any, ...] = ()
+    """tau2 messages (system prompt and history) for live clients."""
+    tools: tuple[Any, ...] = ()
+    write_tools: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -69,8 +73,7 @@ class FakeLLM:
         self.calls.append((packet, temperature, worker_id))
         if not self._script:
             raise RuntimeError("FakeLLM script exhausted")
-        proposal = self._script.popleft()
-        proposal = Proposal(proposal.tool, proposal.args, proposal.reason, worker_id)
+        proposal = replace(self._script.popleft(), worker_id=worker_id)
         return ProposalResponse(proposal, Usage(tokens_in=10, tokens_out=5))
 
     @classmethod
@@ -78,3 +81,33 @@ class FakeLLM:
         """Script that cycles through `proposals` until `times` proposals have been served."""
         cycle = [proposals[i % len(proposals)] for i in range(times)]
         return cls(cycle, model=model)
+
+
+class LiteLLMClient:
+    """A live worker: one tau2 `generate` call (LiteLLM underneath) per proposal."""
+
+    def __init__(self, model: str, llm_args: dict[str, Any] | None = None) -> None:
+        self.model = model
+        self.llm_args = dict(llm_args or {})
+
+    def propose(
+        self, packet: DecisionPacket, *, temperature: float, worker_id: str
+    ) -> ProposalResponse:
+        from tau2.utils.llm_utils import generate  # late: tau2 reads env at import time
+
+        message = generate(
+            model=self.model,
+            messages=list(packet.messages),
+            tools=list(packet.tools),
+            call_name="worker_sample",
+            **{**self.llm_args, "temperature": temperature},
+        )
+        usage = message.usage or {}
+        return ProposalResponse(
+            proposal_from_message(message, packet.write_tools, worker_id),
+            Usage(
+                tokens_in=usage.get("prompt_tokens") or 0,
+                tokens_out=usage.get("completion_tokens") or 0,
+                cost_usd=message.cost or 0.0,
+            ),
+        )

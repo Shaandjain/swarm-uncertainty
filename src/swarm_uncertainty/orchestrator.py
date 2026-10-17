@@ -16,7 +16,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from swarm_uncertainty.actions import STOP_TOOL, Proposal
+from swarm_uncertainty.actions import STOP_TOOL, TRANSFER_TOOLS, Proposal
 from swarm_uncertainty.llm import DecisionPacket, LLMClient, Usage
 from swarm_uncertainty.measures import (
     Cluster,
@@ -30,7 +30,6 @@ from swarm_uncertainty.records import DecisionRecord, DecisionType, ProposalReco
 
 MUTATES_STATE_ATTR = "__mutates_state__"
 TOOL_TYPE_ATTR = "__tool_type__"
-TRANSFER_TOOLS = frozenset({"transfer_to_human_agents", "request_human_agent_transfer"})
 
 
 def tool_mutates_state(tool: Any) -> bool:
@@ -103,11 +102,18 @@ class Orchestrator:
         self._index = 0
 
     def decide(
-        self, packet: DecisionPacket, decision_type: DecisionType, *, task_id: str, trial: int
+        self,
+        packet: DecisionPacket,
+        decision_type: DecisionType,
+        *,
+        task_id: str,
+        trial: int,
+        given: Sequence[Proposal] = (),
     ) -> Decision:
+        """`given` are proposals already drawn for worker 0; they count toward its N."""
         started = time.monotonic()
         usage = Usage()
-        by_worker = self._sample(packet, usage)
+        by_worker = self._sample(packet, usage, given)
         clusters = cluster([p for ps in by_worker for p in ps])
         u = pooled_uncertainty(by_worker)
         d = disagreement(by_worker)
@@ -167,11 +173,13 @@ class Orchestrator:
         self._index += 1
         return Decision(action, tuple(clusters), u, d, escalated, answer, record)
 
-    def _sample(self, packet: DecisionPacket, usage: Usage) -> list[list[Proposal]]:
+    def _sample(
+        self, packet: DecisionPacket, usage: Usage, given: Sequence[Proposal] = ()
+    ) -> list[list[Proposal]]:
         by_worker: list[list[Proposal]] = []
         for i, worker in enumerate(self.workers):
-            proposals = []
-            for _ in range(self.n_samples):
+            proposals = list(given) if i == 0 else []
+            while len(proposals) < self.n_samples:
                 response = worker.propose(packet, temperature=self.temperature, worker_id=f"w{i}")
                 usage.add(response.usage)
                 proposals.append(response.proposal)
