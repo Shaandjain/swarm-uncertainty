@@ -3,11 +3,16 @@
 Diagnostic only, not a condition. For each first wrong write in a run (the decisions RQ1
 counts), plus --correct right ones drawn at random, rebuild the agent's view at that moment
 from sims/, ask a model (--model, default the run's worker) again N times, and record what
-it does and a summary of its thinking. Another model here previews a K=2 team offline. The model thinks by default
+it does and a summary of its thinking. Another model here previews a K=2 team offline.
+
+--at plan rewinds further, to just before the agent's reply that proposed the action and
+asked the user to confirm. Each sample writes that reply afresh, the user answers "Yes,
+please go ahead.", and the call the agent then makes is the sample's planned action. This
+asks whether the plans disagree before the user has agreed to one. The model thinks by default
 (adaptive) in the runs too; display "summarized" only makes that thinking visible, so the
 replay asks the same question the run did. At default effort the model often skips thinking
 on a step, so --effort high is the arm to read; it also shows whether more thought fixes
-the error. Writes <run>/replay-<model>-<effort>.jsonl, one line per sample; scripts/collect.py
+the error. Writes <run>/replay-<model>-<effort>[-plan].jsonl, one line per sample; scripts/collect.py
 loads them into the replays table.
 """
 
@@ -72,12 +77,25 @@ def history_before(messages: list, rank: int, write_tools: frozenset[str]) -> li
     raise ValueError(f"no executed write number {rank} in the trajectory")
 
 
+def plan_history(history: list) -> list | None:
+    """History before the agent's last plain reply with a user turn after it, or None if the
+    write was not preceded by one (nothing was put to the user first)."""
+    for j in range(len(history) - 1, -1, -1):
+        m = history[j]
+        if m.role == "assistant" and m.content and not m.tool_calls:
+            if any(n.role == "user" for n in history[j + 1 :]):
+                return history[:j]
+            return None
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run", type=Path)
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--model", help="model to ask; default the run's first worker")
     parser.add_argument("--correct", type=int, default=0, help="right decisions to add")
+    parser.add_argument("--at", choices=("action", "plan"), default="action")
     parser.add_argument(
         "--effort", default="default", help="low, medium, high, ...; default as run"
     )
@@ -87,6 +105,7 @@ def main() -> int:
     sanitize_no_proxy()
     use_own_anthropic_key()
     from tau2.agent.llm_agent import LLMAgent
+    from tau2.data_model.message import UserMessage
     from tau2.data_model.simulation import SimulationRun
     from tau2.registry import registry
     from tau2.utils.llm_utils import generate
@@ -103,19 +122,30 @@ def main() -> int:
     system = LLMAgent(tools=tools, domain_policy=env.get_policy(), llm=model).get_init_state()
     tasks = {t["id"]: t for t in load_tasks(cfg["domain"], cfg["split"])}
 
-    effort = {} if args.effort == "default" else {"output_config": {"effort": args.effort}}
+    extra: dict = {}
+    if model.startswith("claude"):
+        extra["thinking"] = {"type": "adaptive", "display": "summarized"}
+    if args.effort != "default":
+        extra["output_config"] = {"effort": args.effort}
 
-    def sample(decision: dict, history: list, index: int) -> dict:
-        message = generate(
+    def ask(history: list):
+        return generate(
             model=model,
             messages=system.system_messages + history,
             tools=tools,
             call_name="replay",
             temperature=1.0,
             max_tokens=MAX_TOKENS,
-            thinking={"type": "adaptive", "display": "summarized"},
-            **effort,
+            **extra,
         )
+
+    def sample(decision: dict, history: list, index: int) -> dict:
+        plan, cost = "", 0.0
+        message = ask(history)
+        if args.at == "plan" and not message.tool_calls:
+            plan, cost = message.content or "", message.cost or 0.0
+            yes = UserMessage(role="user", content="Yes, please go ahead.")
+            message = ask([*history, message, yes])
         raw = (message.raw_data or {}).get("choices", [{}])[0].get("message", {})
         proposal = proposal_from_message(message, write_tools, "w0")
         gold = {
@@ -129,6 +159,8 @@ def main() -> int:
             "sample_index": index,
             "model": model,
             "effort": args.effort,
+            "at": args.at,
+            "plan": plan,
             "original_label": decision["step_label"],
             "original_tool": decision["chosen_tool"],
             "original_args": decision["chosen_args"],
@@ -139,27 +171,35 @@ def main() -> int:
             "same_as_original": proposal.key
             == action_key(decision["chosen_tool"], decision["chosen_args"]),
             "matches_gold": proposal.key in gold,
-            "cost_usd": message.cost or 0.0,
+            "cost_usd": cost + (message.cost or 0.0),
         }
 
     labelled = labelled_decisions(args.run)
     right = [d for d in labelled if d["step_label"] == 0]
     decisions = [d for d in labelled if d["step_label"] == 1]
     decisions += random.Random(0).sample(right, min(args.correct, len(right)))
-    jobs = []
+    jobs, skipped = [], []
     for d in decisions:
         sim = SimulationRun.model_validate_json(
             (args.run / "sims" / f"{d['task_id']}_{d['trial']}.json").read_text()
         )
         history = history_before(sim.messages, d["rank"], write_tools)
+        if args.at == "plan":
+            history = plan_history(history)
+            if history is None:
+                skipped.append(d)
+                continue
         jobs += [(d, history, i) for i in range(args.samples)]
+    if skipped:
+        print(f"{len(skipped)} decisions skipped: no reply put the action to the user first")
     wrong = sum(d["step_label"] for d in decisions)
     print(
         f"{args.run}: {wrong} wrong + {len(decisions) - wrong} right decisions"
         f" x {args.samples} samples, {model}, effort {args.effort}"
     )
 
-    out = args.run / f"replay-{model}-{args.effort}.jsonl"
+    suffix = "-plan" if args.at == "plan" else ""
+    out = args.run / f"replay-{model}-{args.effort}{suffix}.jsonl"
     out.unlink(missing_ok=True)
     rows, failed = [], 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
