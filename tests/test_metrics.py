@@ -2,6 +2,7 @@ import pytest
 
 from swarm_uncertainty.metrics import (
     auroc,
+    bootstrap_ci,
     expected_calibration_error,
     mean_pass_at_k,
     pass_at_k,
@@ -60,3 +61,18 @@ class TestPassAtK:
     def test_k_too_large(self):
         with pytest.raises(ValueError):
             pass_at_k([1], 2)
+
+
+class TestBootstrap:
+    def mean(self, xs):
+        return sum(xs) / len(xs)
+
+    def test_identical_groups_give_a_point(self):
+        assert bootstrap_ci([[1, 3], [1, 3], [1, 3]], self.mean) == (2.0, 2.0)
+
+    def test_interval_brackets_the_estimate_and_is_reproducible(self):
+        groups = [[0, 1], [1, 1], [0, 0], [1, 0, 1], [0]]
+        low, high = bootstrap_ci(groups, self.mean, seed=3)
+        estimate = self.mean([x for g in groups for x in g])
+        assert low <= estimate <= high
+        assert (low, high) == bootstrap_ci(groups, self.mean, seed=3)

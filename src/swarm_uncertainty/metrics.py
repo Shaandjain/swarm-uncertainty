@@ -6,7 +6,8 @@ Inputs are plain lists: a score per decision point (higher = more uncertain) and
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import random
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from math import comb
@@ -109,3 +110,25 @@ def mean_pass_at_k(trials_by_task: dict[str, Sequence[int]], k: int) -> float:
     if not trials_by_task:
         return 0.0
     return sum(pass_at_k(t, k) for t in trials_by_task.values()) / len(trials_by_task)
+
+
+def bootstrap_ci[T](
+    groups: Sequence[Sequence[T]],
+    statistic: Callable[[list[T]], float],
+    *,
+    n: int = 2000,
+    seed: int = 0,
+    level: float = 0.95,
+) -> tuple[float, float]:
+    """Percentile interval from resampling whole groups (tasks) with replacement.
+
+    Decisions within a task are correlated, so tasks, not decisions, are the unit resampled.
+    """
+    rng = random.Random(seed)
+    values = []
+    for _ in range(n):
+        pooled = [item for _ in groups for item in rng.choice(groups)]
+        values.append(statistic(pooled))
+    values.sort()
+    tail = (1 - level) / 2
+    return values[int(tail * (n - 1))], values[int((1 - tail) * (n - 1))]
