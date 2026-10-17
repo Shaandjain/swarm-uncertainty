@@ -18,6 +18,7 @@ RESPOND_TOOL = "__respond__"
 """Pseudo-tool name for a plain reply. All replies share one cluster, whatever they say."""
 
 TRANSFER_TOOLS = frozenset({"transfer_to_human_agents", "request_human_agent_transfer"})
+"""Transfers cluster by tool name only: the summary is free text, so no two samples match."""
 
 READ_PREFIX = "read:"
 """Reads cluster by tool name only: which lookup to make next is the choice, not its arguments."""
@@ -77,8 +78,11 @@ def normalize_value(value: Any) -> Any:
 
 def normalize_action(tool: str, args: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
     """Return (tool, args) in canonical form."""
+    clean_tool = tool.strip().lower()
+    if clean_tool in TRANSFER_TOOLS:
+        return clean_tool, {}
     clean_args = {str(k).strip().lower(): normalize_value(v) for k, v in (args or {}).items()}
-    return tool.strip().lower(), clean_args
+    return clean_tool, clean_args
 
 
 def action_key(tool: str, args: dict[str, Any] | None) -> str:

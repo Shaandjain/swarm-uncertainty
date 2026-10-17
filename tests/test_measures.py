@@ -52,6 +52,11 @@ class TestActionKey:
     def test_arg_order_is_ignored(self):
         assert action_key("t", {"a": 1, "b": 2}) == action_key("t", {"b": 2, "a": 1})
 
+    def test_transfer_summary_is_ignored(self):
+        a = action_key("transfer_to_human_agents", {"summary": "user wants a refund"})
+        b = action_key("transfer_to_human_agents", {"summary": "Refund request, escalating."})
+        assert a == b
+
     def test_reason_and_worker_do_not_affect_key(self):
         a = Proposal("t", {"x": 1}, reason="because", worker_id="w1")
         b = Proposal("t", {"x": 1}, reason="other", worker_id="w2")
