@@ -21,21 +21,20 @@ uv run pytest
 ## Run
 
 ```bash
-uv run python run.py configs/c1.yaml --tasks 10    # first 10 tasks; omit for the whole split
+uv run python run.py configs/s1.yaml --tasks 10    # first 10 tasks; omit for the whole split
 ```
 
 Output goes to `runs/<name>/`: `episodes.jsonl`, `decisions.jsonl` and full trajectories in
 `sims/`. Retail tasks are graded by database state and, for 112 of 114, by tau2's LLM judge,
 which is fixed to `gpt-4.1` and needs `OPENAI_API_KEY`. `db_reward` is the database part alone.
 
-| config | K | N | escalation |
-|---|---|---|---|
-| c1 | 1 | 1 | off |
-| c2 | 1 | 5 | on |
-| c3 | 3 | 5 | off |
-| c4 | 3 | 5 | on |
+| config | N | escalation |
+|---|---|---|
+| s0 | 1 | off |
+| s1 | 5 | off, logged only (shadow) |
+| s2 | 5 | to the answer key |
 
-Model ids in the configs are placeholders until API access is in place.
+Worker: Claude Haiku 5.5. Simulated user: gpt-4.1, as in tau2's published baselines.
 
 ## Layout
 

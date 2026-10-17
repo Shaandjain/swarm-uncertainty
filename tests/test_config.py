@@ -7,7 +7,7 @@ from swarm_uncertainty.config import RunConfig, sanitize_no_proxy
 CONFIGS = Path(__file__).parent.parent / "configs"
 
 
-@pytest.mark.parametrize("name", ["c1", "c2", "c3", "c4"])
+@pytest.mark.parametrize("name", ["s0", "s1", "s2"])
 def test_condition_configs_load(name):
     cfg = RunConfig.load(CONFIGS / f"{name}.yaml")
     assert cfg.name == name
@@ -15,14 +15,14 @@ def test_condition_configs_load(name):
     assert len(cfg.worker_models) == cfg.k_workers
 
 
-def test_conditions_differ_only_in_k_and_escalation():
-    c1, c2, c3, c4 = (RunConfig.load(CONFIGS / f"c{i}.yaml") for i in (1, 2, 3, 4))
-    assert (c1.k_workers, c1.escalate) == (1, False)
-    assert (c2.k_workers, c2.escalate) == (1, True)
-    assert (c3.k_workers, c3.escalate) == (3, False)
-    assert (c4.k_workers, c4.escalate) == (3, True)
-    assert c2.n_samples == c3.n_samples == c4.n_samples
-    assert c1.orchestrator_model == c4.orchestrator_model
+def differs(a: dict, b: dict) -> set[str]:
+    return {k for k in a if a[k] != b[k]} - {"name"}
+
+
+def test_neighbouring_conditions_differ_in_one_setting():
+    s0, s1, s2 = (RunConfig.load(CONFIGS / f"s{i}.yaml").dump() for i in (0, 1, 2))
+    assert differs(s0, s1) == {"n_samples"}
+    assert differs(s1, s2) == {"escalate", "oracle"}
 
 
 def test_invalid_config_rejected():

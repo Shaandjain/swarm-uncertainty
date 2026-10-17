@@ -1,4 +1,4 @@
-"""Run one condition: python run.py configs/c4.yaml
+"""Run one condition: python run.py configs/s1.yaml
 
 Writes runs/<name>/: config.json, episodes.jsonl (one line per task x trial),
 decisions.jsonl (one line per decision point) and sims/ (full tau2 trajectories).
