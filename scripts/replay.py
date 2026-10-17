@@ -1,17 +1,19 @@
-"""Replay wrong decisions and read the reasoning: uv run python scripts/replay.py runs/train/s1
+"""Replay decisions and read the reasoning: uv run python scripts/replay.py runs/train/s1
 
 Diagnostic only, not a condition. For each first wrong write in a run (the decisions RQ1
-counts), rebuild the agent's view at that moment from sims/, ask the worker model again N
-times, and record what it does and a summary of its thinking. The model thinks by default
+counts), plus --correct right ones drawn at random, rebuild the agent's view at that moment
+from sims/, ask a model (--model, default the run's worker) again N times, and record what
+it does and a summary of its thinking. Another model here previews a K=2 team offline. The model thinks by default
 (adaptive) in the runs too; display "summarized" only makes that thinking visible, so the
 replay asks the same question the run did. At default effort the model often skips thinking
 on a step, so --effort high is the arm to read; it also shows whether more thought fixes
-the error. Writes <run>/replay-<effort>.jsonl, one line per sample; scripts/collect.py
+the error. Writes <run>/replay-<model>-<effort>.jsonl, one line per sample; scripts/collect.py
 loads them into the replays table.
 """
 
 import argparse
 import json
+import random
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -22,15 +24,16 @@ from swarm_uncertainty.config import sanitize_no_proxy, use_own_anthropic_key
 MAX_TOKENS = 16000
 
 
-def wrong_decisions(run: Path) -> list[dict]:
-    """First wrong executed decision of each episode, with its rank among executed ones."""
+def labelled_decisions(run: Path) -> list[dict]:
+    """Executed decisions up to and including each episode's first wrong one, with their rank
+    among executed ones: the decisions RQ1 counts."""
     by_episode: dict[tuple[str, int], list[dict]] = {}
     with (run / "decisions.jsonl").open(encoding="utf-8") as handle:
         for line in handle:
             if line.strip():
                 r = json.loads(line)
                 by_episode.setdefault((r["task_id"], r["trial"]), []).append(r)
-    wrong = []
+    labelled = []
     for records in by_episode.values():
         executed = [
             r
@@ -38,21 +41,21 @@ def wrong_decisions(run: Path) -> list[dict]:
             if r["step_label"] is not None
         ]
         for rank, r in enumerate(executed):
-            if r["step_label"] == 1 and not r["extra"].get("after_divergence"):
-                wrong.append({**r, "rank": rank})
-    return sorted(wrong, key=lambda r: (int(r["task_id"]), r["trial"]))
+            if not r["extra"].get("after_divergence"):
+                labelled.append({**r, "rank": rank})
+    return sorted(labelled, key=lambda r: (int(r["task_id"]), r["trial"], r["decision_index"]))
 
 
 def outcome_of(row: dict) -> str:
     from swarm_uncertainty.actions import READ_PREFIX, RESPOND_TOOL
 
     if row["same_as_original"]:
-        return "same wrong action"
+        return "same action as the run"
     if row["matches_gold"]:
         return "gold action"
     if row["tool"] == RESPOND_TOOL or row["tool"].startswith(READ_PREFIX):
         return "asks or looks up first"
-    return "another wrong action"
+    return "another action"
 
 
 def history_before(messages: list, rank: int, write_tools: frozenset[str]) -> list:
@@ -73,6 +76,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run", type=Path)
     parser.add_argument("--samples", type=int, default=5)
+    parser.add_argument("--model", help="model to ask; default the run's first worker")
+    parser.add_argument("--correct", type=int, default=0, help="right decisions to add")
     parser.add_argument(
         "--effort", default="default", help="low, medium, high, ...; default as run"
     )
@@ -91,7 +96,7 @@ def main() -> int:
     from swarm_uncertainty.tasks import gold_actions, load_tasks
 
     cfg = json.loads((args.run / "config.json").read_text())
-    model = cfg["worker_models"][0]
+    model = args.model or cfg["worker_models"][0]
     env = registry.get_env_constructor(cfg["domain"])()
     tools = env.get_tools()
     write_tools = write_tool_names(tools)
@@ -122,7 +127,9 @@ def main() -> int:
             "trial": decision["trial"],
             "decision_index": decision["decision_index"],
             "sample_index": index,
+            "model": model,
             "effort": args.effort,
+            "original_label": decision["step_label"],
             "original_tool": decision["chosen_tool"],
             "original_args": decision["chosen_args"],
             "thinking": raw.get("reasoning_content") or "",
@@ -135,7 +142,10 @@ def main() -> int:
             "cost_usd": message.cost or 0.0,
         }
 
-    decisions = wrong_decisions(args.run)
+    labelled = labelled_decisions(args.run)
+    right = [d for d in labelled if d["step_label"] == 0]
+    decisions = [d for d in labelled if d["step_label"] == 1]
+    decisions += random.Random(0).sample(right, min(args.correct, len(right)))
     jobs = []
     for d in decisions:
         sim = SimulationRun.model_validate_json(
@@ -143,11 +153,13 @@ def main() -> int:
         )
         history = history_before(sim.messages, d["rank"], write_tools)
         jobs += [(d, history, i) for i in range(args.samples)]
+    wrong = sum(d["step_label"] for d in decisions)
     print(
-        f"{args.run}: {len(decisions)} wrong decisions x {args.samples} samples, {model}, effort {args.effort}"
+        f"{args.run}: {wrong} wrong + {len(decisions) - wrong} right decisions"
+        f" x {args.samples} samples, {model}, effort {args.effort}"
     )
 
-    out = args.run / f"replay-{args.effort}.jsonl"
+    out = args.run / f"replay-{model}-{args.effort}.jsonl"
     out.unlink(missing_ok=True)
     rows, failed = [], 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -164,9 +176,12 @@ def main() -> int:
         for row in rows:
             handle.write(json.dumps(row) + "\n")
 
-    if rows:
-        outcome = Counter(outcome_of(r) for r in rows)
-        print(", ".join(f"{n} {k}" for k, n in outcome.most_common()))
+    for label, name in ((1, "wrong"), (0, "right")):
+        outcome = Counter(outcome_of(r) for r in rows if r["original_label"] == label)
+        if outcome:
+            print(
+                f"on {name} decisions: " + ", ".join(f"{n} {k}" for k, n in outcome.most_common())
+            )
     print(f"{len(rows)} samples -> {out}, ${sum(r['cost_usd'] for r in rows):.2f}")
     return 1 if failed else 0
 

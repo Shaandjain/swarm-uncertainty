@@ -42,7 +42,7 @@ CREATE TABLE messages (
 );
 CREATE TABLE replays (
     run TEXT, task_id TEXT, trial INTEGER, decision_index INTEGER, sample_index INTEGER,
-    effort TEXT, original_tool TEXT, original_args TEXT, thinking TEXT, content TEXT, tool TEXT, args TEXT,
+    model TEXT, effort TEXT, original_label INTEGER, original_tool TEXT, original_args TEXT, thinking TEXT, content TEXT, tool TEXT, args TEXT,
     same_as_original INTEGER, matches_gold INTEGER, cost_usd REAL
 );
 CREATE INDEX proposals_decision ON proposals (run, task_id, trial, decision_index);
@@ -91,11 +91,12 @@ def load_run(db: sqlite3.Connection, run: Path) -> None:
             ],
         )
     db.executemany(
-        "INSERT INTO replays VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO replays VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [
             (
                 name, r["task_id"], r["trial"], r["decision_index"], r["sample_index"],
-                r["effort"], r["original_tool"], json.dumps(r["original_args"]), r["thinking"], r["content"],
+                r["model"], r["effort"], r["original_label"], r["original_tool"],
+                json.dumps(r["original_args"]), r["thinking"], r["content"],
                 r["tool"], json.dumps(r["args"]), r["same_as_original"], r["matches_gold"],
                 r["cost_usd"],
             )
