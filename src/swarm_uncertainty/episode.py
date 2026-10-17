@@ -13,10 +13,12 @@ from tau2.runner.simulation import run_simulation
 
 from swarm_uncertainty.agent import SamplingAgent
 from swarm_uncertainty.config import RunConfig
+from swarm_uncertainty.labels import label_episode
 from swarm_uncertainty.llm import LiteLLMClient, LLMClient
 from swarm_uncertainty.oracle import make_oracle
 from swarm_uncertainty.orchestrator import Orchestrator
 from swarm_uncertainty.records import DecisionRecord
+from swarm_uncertainty.tasks import gold_actions
 
 USER_TEMPERATURE = 0.0
 MAX_STEPS = 200
@@ -46,11 +48,12 @@ def run_episode(
 ) -> tuple[EpisodeResult, list[DecisionRecord], SimulationRun]:
     env = registry.get_env_constructor(cfg.domain)()
     workers = workers or [LiteLLMClient(m) for m in cfg.worker_models]
+    task_dict = task.model_dump()
     orchestrator = Orchestrator(
         workers,
         n_samples=cfg.n_samples,
         threshold=cfg.threshold,
-        oracle=make_oracle(cfg.oracle, task.model_dump()),
+        oracle=make_oracle(cfg.oracle, task_dict),
         escalate=cfg.escalate,
         temperature=cfg.temperature,
         max_escalations_per_task=cfg.max_escalations_per_task,
@@ -85,6 +88,7 @@ def run_episode(
         )
     )
     records = agent.records
+    label_episode(records, gold_actions(task_dict), agent.write_tools)
     reward_info = simulation.reward_info
     db_check = reward_info.db_check if reward_info else None
     result = EpisodeResult(

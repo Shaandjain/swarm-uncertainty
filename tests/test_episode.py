@@ -80,6 +80,7 @@ def test_episode_runs_end_to_end_offline(cfg, monkeypatch):
     assert len(records) == 1
     assert records[0].pooled_uncertainty == pytest.approx(0.2)
     assert records[0].chosen_args == NEW_ADDRESS
+    assert records[0].step_label == 0
     assert result.decisions == 1 and result.escalations == 0
     assert result.db_reward == 1.0 and result.reward == 1.0
     assert simulation.task_id == TASK_ID
