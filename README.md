@@ -53,6 +53,9 @@ Output goes to `runs/<name>/`: `episodes.jsonl`, `decisions.jsonl` and full traj
 `sims/`. Retail tasks are graded by database state and, for 112 of 114, by tau2's LLM judge,
 which is fixed to `gpt-4.1` and needs `OPENAI_API_KEY`. `db_reward` is the database part alone.
 
+`uv run python scripts/collect.py` loads every run under `runs/` into `runs/traces.db`
+(SQLite): episodes, decisions, every sampled proposal, and every message of every episode.
+
 | config | N | escalation |
 |---|---|---|
 | s0 | 1 | off |
