@@ -70,3 +70,21 @@ def sanitize_no_proxy(environ: dict[str, str] | None = None) -> dict[str, str]:
             removed[var] = ",".join(dropped)
             env[var] = ",".join(kept)
     return removed
+
+
+ANTHROPIC_KEY_VAR = "SWARM_ANTHROPIC_API_KEY"
+
+
+def use_own_anthropic_key(environ: dict[str, str] | None = None) -> bool:
+    """Point LiteLLM at the Anthropic API with our key, not the host's Claude Code endpoint.
+
+    Cloud sessions reserve ANTHROPIC_API_KEY and set ANTHROPIC_BASE_URL for Claude Code
+    itself, so the key is stored under ANTHROPIC_KEY_VAR. Returns whether a key was found.
+    """
+    env = os.environ if environ is None else environ
+    key = env.get(ANTHROPIC_KEY_VAR)
+    if not key:
+        return False
+    env["ANTHROPIC_API_KEY"] = key
+    env.pop("ANTHROPIC_BASE_URL", None)
+    return True

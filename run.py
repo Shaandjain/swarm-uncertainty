@@ -10,7 +10,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from swarm_uncertainty.config import RunConfig, sanitize_no_proxy
+from swarm_uncertainty.config import RunConfig, sanitize_no_proxy, use_own_anthropic_key
 
 
 def main() -> int:
@@ -30,6 +30,7 @@ def main() -> int:
     removed = sanitize_no_proxy()
     if removed:
         print(f"dropped unparseable no_proxy entries: {removed}", file=sys.stderr)
+    use_own_anthropic_key()
 
     cfg = RunConfig.load(args.config)
     # after the env fix: tau2 reads proxy settings and data paths at import time

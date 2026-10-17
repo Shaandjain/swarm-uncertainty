@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from swarm_uncertainty.config import RunConfig, sanitize_no_proxy
+from swarm_uncertainty.config import RunConfig, sanitize_no_proxy, use_own_anthropic_key
 
 CONFIGS = Path(__file__).parent.parent / "configs"
 
@@ -48,3 +48,15 @@ def test_sanitize_no_proxy_drops_bracketed_entries():
     assert env["no_proxy"] == "localhost,10.0.0.0/8"
     assert env["NO_PROXY"] == "localhost"
     assert removed == {"no_proxy": "*[::1]"}
+
+
+def test_own_anthropic_key_replaces_host_endpoint():
+    env = {"SWARM_ANTHROPIC_API_KEY": "k", "ANTHROPIC_BASE_URL": "http://host"}
+    assert use_own_anthropic_key(env)
+    assert env["ANTHROPIC_API_KEY"] == "k" and "ANTHROPIC_BASE_URL" not in env
+
+
+def test_no_own_key_leaves_env_alone():
+    env = {"ANTHROPIC_BASE_URL": "http://host"}
+    assert not use_own_anthropic_key(env)
+    assert env == {"ANTHROPIC_BASE_URL": "http://host"}
