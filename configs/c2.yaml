@@ -10,7 +10,8 @@ oracle: gold_veto
 orchestrator_model: ORCHESTRATOR_MODEL
 worker_models:
   - WORKER_MODEL
-temperature: 0.7
+user_model: USER_MODEL
+temperature: 1.0
 trials: 4
 max_escalations_per_task: 3
 spend_cap_usd: 0

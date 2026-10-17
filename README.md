@@ -21,8 +21,12 @@ uv run pytest
 ## Run
 
 ```bash
-uv run python run.py configs/c4.yaml
+uv run python run.py configs/c1.yaml --tasks 10    # first 10 tasks; omit for the whole split
 ```
+
+Output goes to `runs/<name>/`: `episodes.jsonl`, `decisions.jsonl` and full trajectories in
+`sims/`. Retail tasks are graded by database state and, for 112 of 114, by tau2's LLM judge,
+which is fixed to `gpt-4.1` and needs `OPENAI_API_KEY`. `db_reward` is the database part alone.
 
 | config | K | N | escalation |
 |---|---|---|---|
@@ -41,6 +45,8 @@ src/swarm_uncertainty/
   measures.py       agreement, pooled uncertainty, disagreement, entropy
   llm.py            model client interface and a scripted fake
   orchestrator.py   decision loop: sample, cluster, act or escalate
+  agent.py          tau2 agent that sends decision points through the loop
+  episode.py        one task x trial: build environment, user and agent, run, score
   oracle.py         oracles the orchestrator can consult
   records.py        one record per decision point
   metrics.py        auroc, calibration, risk-coverage, pass^k
@@ -52,5 +58,4 @@ tests/
 run.py
 ```
 
-The decision loop, measures, oracles and metrics run offline against a scripted model. The
-tau2 agent adapter and a live model client are not written yet.
+Tests run offline: the model calls are scripted, including one full retail episode.

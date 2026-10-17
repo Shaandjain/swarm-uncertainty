@@ -38,6 +38,7 @@ def test_invalid_config_rejected():
             oracle="none",
             orchestrator_model="m",
             worker_models=("m", "m"),
+            user_model="m",
         )
 
 

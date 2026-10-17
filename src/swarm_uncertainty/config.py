@@ -21,7 +21,8 @@ class RunConfig:
     oracle: str
     orchestrator_model: str
     worker_models: tuple[str, ...]
-    temperature: float = 0.7
+    user_model: str
+    temperature: float = 1.0
     trials: int = 4
     max_escalations_per_task: int = 3
     task_ids: tuple[str, ...] = ()

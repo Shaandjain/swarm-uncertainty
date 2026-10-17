@@ -73,7 +73,7 @@ class TestSamplingAgent:
     def test_n1_uses_the_agents_own_call(self, env, monkeypatch):
         first = call("cancel_pending_order", **CANCEL)
         agent, worker = agent_with(env, monkeypatch, first, [], n_samples=1)
-        assert step(agent) is first
+        assert step(agent).tool_calls == first.tool_calls
         assert worker.calls == []
         assert agent.records[0].pooled_uncertainty == 0.0
 

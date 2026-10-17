@@ -11,6 +11,7 @@ from __future__ import annotations
 from tau2.agent.llm_agent import LLMAgent, LLMAgentState
 from tau2.data_model.message import AssistantMessage
 from tau2.environment.tool import Tool
+from tau2.utils.utils import get_now
 
 from swarm_uncertainty.actions import Proposal, proposal_from_message
 from swarm_uncertainty.llm import DecisionPacket
@@ -57,7 +58,8 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
             packet, kind, task_id=self.task_id, trial=self.trial, given=given
         )
         self.records.append(decision.record)
-        return decision.action.message
+        # tau2 orders the trajectory by timestamp, so stamp the chosen sample as sent now
+        return decision.action.message.model_copy(update={"timestamp": get_now()})
 
     def _decision_type(self, message: AssistantMessage) -> DecisionType | None:
         kinds = [decision_type(c.name, self.write_tools) for c in message.tool_calls or []]
