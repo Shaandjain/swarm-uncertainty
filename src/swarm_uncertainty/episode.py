@@ -68,6 +68,7 @@ def run_episode(
         trial=trial,
         llm_args={"temperature": cfg.temperature},
         probe_plans=cfg.plan_probe,
+        ask_at_plan=cfg.plan_ask,
     )
     user = build_user(
         "user_simulator",

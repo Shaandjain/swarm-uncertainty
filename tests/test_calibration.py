@@ -4,8 +4,10 @@ import pytest
 
 from swarm_uncertainty.calibration import (
     accuracy_by_level,
+    as_u_threshold,
     calibration_error,
     episode_certainty,
+    fit_threshold,
     threshold_sweep,
 )
 from swarm_uncertainty.records import DecisionRecord
@@ -64,6 +66,29 @@ class TestThresholdSweep:
         assert at_one.interventions == 2 and at_one.caught == 2
         assert at_one.residual_error_rate == pytest.approx(0.5)
         assert at_one.caught_per_intervention == 1.0
+
+
+class TestFitThreshold:
+    CERTAINTIES = (1.0, 1.0, 0.8, 0.8, 0.6, 0.4)
+    LABELS = (0, 1, 0, 1, 1, 1)
+
+    def test_most_errors_within_budget(self):
+        points = threshold_sweep(self.CERTAINTIES, self.LABELS)
+        # 6 decisions over 2 episodes: one call per episode allows 2 calls
+        best = fit_threshold(points, episodes=2, budget=1.0)
+        assert best.threshold == 0.8 and best.interventions == 2 and best.caught == 2
+
+    def test_nothing_fits(self):
+        points = threshold_sweep(self.CERTAINTIES, self.LABELS)
+        assert fit_threshold(points, episodes=100, budget=0.001) is None
+
+    def test_u_threshold_calls_the_same_decisions(self):
+        points = threshold_sweep(self.CERTAINTIES, self.LABELS)
+        best = fit_threshold(points, episodes=2, budget=1.0)
+        u = as_u_threshold(best, self.CERTAINTIES)
+        assert u == 0.4
+        called = [c for c in self.CERTAINTIES if round(1 - c, 6) >= u]
+        assert len(called) == best.interventions
 
 
 class TestEpisodeCertainty:

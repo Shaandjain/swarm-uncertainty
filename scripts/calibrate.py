@@ -10,6 +10,8 @@ Prints, at the action and at the plan:
 Decisions follow pilot.py: labelled, before the first wrong write, plans scored apart from
 actions; --audit keeps only the wrong actions that annotator blames on the agent; --pool
 scores the runs as one. --figures DIR also writes PNGs (needs: uv sync --group plots).
+--budget B prints the threshold that catches the most wrong actions with at most B human calls
+per episode, as the `threshold` value a config takes.
 """
 
 import argparse
@@ -23,9 +25,11 @@ from swarm_uncertainty.calibration import (
     Level,
     SweepPoint,
     accuracy_by_level,
+    as_u_threshold,
     calibration_error,
     certainty,
     episode_certainty,
+    fit_threshold,
     threshold_sweep,
 )
 from swarm_uncertainty.metrics import auroc, bootstrap_ci
@@ -135,6 +139,11 @@ def main() -> int:
     parser.add_argument("--audit", help="annotator whose audit decides which errors count")
     parser.add_argument("--pool", action="store_true", help="score the runs as one")
     parser.add_argument("--figures", type=Path, help="directory for PNGs")
+    parser.add_argument(
+        "--budget",
+        type=float,
+        help="human calls per episode allowed; prints the threshold that catches the most errors",
+    )
     args = parser.parse_args()
 
     loaded = {str(run): decisions(run, args.audit) for run in args.runs}
@@ -155,7 +164,19 @@ def main() -> int:
             print(f"  at the {kind}: {len(chosen)} labelled decisions, {sum(ys)} wrong")
             by_kind[kind] = accuracy_by_level(cs, ys)
             print_levels(by_kind[kind])
-            print_sweep(threshold_sweep(cs, ys), n_episodes)
+            points = threshold_sweep(cs, ys)
+            print_sweep(points, n_episodes)
+            if args.budget is not None:
+                best = fit_threshold(points, n_episodes, args.budget)
+                if best is None:
+                    print(f"    no threshold calls a human within {args.budget} per episode")
+                else:
+                    print(
+                        f"    fit for <= {args.budget} calls per episode: threshold "
+                        f"{as_u_threshold(best, cs)} (escalate when U >= it), catches "
+                        f"{best.caught} of {best.caught + best.missed} with "
+                        f"{best.interventions} calls"
+                    )
             print_episodes(runs, kind)
         if args.figures and by_kind:
             figures(args.figures, Path(name).name, by_kind)

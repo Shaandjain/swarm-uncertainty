@@ -1,0 +1,19 @@
+# ten samples, escalates to the answer key at a threshold fitted on train (--threshold). the
+# most escalating at that threshold could buy on held-out tasks, and how often it fires.
+name: s2-test
+domain: retail
+split: test
+k_workers: 1
+n_samples: 10
+threshold: 0.4
+escalate: true
+oracle: gold_veto
+orchestrator_model: claude-haiku-5-5
+worker_models:
+  - claude-haiku-5-5
+user_model: gpt-4.1-2025-04-14
+temperature: 1.0
+trials: 2
+max_escalations_per_task: 3
+spend_cap_usd: 20
+seed: 0

@@ -34,7 +34,7 @@ def env():
     return registry.get_env_constructor("retail")()
 
 
-def agent_with(env, monkeypatch, first, samples, probe_plans=False, **orch):
+def agent_with(env, monkeypatch, first, samples, probe_plans=False, ask_at_plan=False, **orch):
     monkeypatch.setattr("tau2.agent.llm_agent.generate", lambda **_: first)
     writes = write_tool_names(env.get_tools())
     worker = FakeLLM([proposal_from_message(m, writes, "w0") for m in samples])
@@ -47,6 +47,7 @@ def agent_with(env, monkeypatch, first, samples, probe_plans=False, **orch):
         task_id="t",
         trial=0,
         probe_plans=probe_plans,
+        ask_at_plan=ask_at_plan,
     )
     return agent, worker
 
@@ -124,3 +125,48 @@ class TestPlanProbe:
         agent, worker = agent_with(env, monkeypatch, ask, [], n_samples=5)
         step(agent)
         assert worker.calls == [] and agent.records == []
+
+
+class TestAskAtPlan:
+    PLAN = reply("I'll cancel #W1 because you no longer need it. Shall I go ahead?")
+    CANCEL = call("cancel_pending_order", **CANCEL)
+    OTHER = call("cancel_pending_order", order_id="#W2", reason="no longer needed")
+    # gate, then five samples that each reply and act after the yes: 3 cancel #W1, 2 cancel #W2
+    SPLIT = (CANCEL, *[PLAN, CANCEL] * 3, *[PLAN, OTHER] * 2)
+
+    def run(self, env, monkeypatch, script, **orch):
+        return agent_with(
+            env,
+            monkeypatch,
+            self.PLAN,
+            script,
+            probe_plans=True,
+            ask_at_plan=True,
+            **{"n_samples": 5, "threshold": 0.4, **orch},
+        )
+
+    def test_disagreement_sends_a_question_instead(self, env, monkeypatch):
+        question = reply("Is it order #W1 or #W2 you want cancelled?")
+        agent, worker = self.run(env, monkeypatch, [*self.SPLIT, question])
+        assert step(agent).content == question.content
+        record = agent.records[0]
+        assert record.pooled_uncertainty == pytest.approx(0.4)
+        assert record.extra["asked"] == question.content
+        system = worker.calls[-1][0].messages[0].content
+        assert "#W1" in system and "#W2" in system and "3 of 5" in system
+
+    def test_agreement_sends_the_proposal(self, env, monkeypatch):
+        script = [self.CANCEL, *[self.PLAN, self.CANCEL] * 4, self.PLAN, self.OTHER]
+        agent, worker = self.run(env, monkeypatch, script)
+        assert step(agent).content == self.PLAN.content
+        assert len(worker.calls) == 11 and "asked" not in agent.records[0].extra
+
+    def test_tool_call_instead_of_a_question_falls_back(self, env, monkeypatch):
+        agent, _ = self.run(env, monkeypatch, [*self.SPLIT, self.CANCEL])
+        assert step(agent).content == self.PLAN.content
+        assert agent.records[0].extra["asked"] is None
+
+    def test_asks_at_most_the_escalation_limit(self, env, monkeypatch):
+        agent, worker = self.run(env, monkeypatch, list(self.SPLIT), max_escalations_per_task=0)
+        assert step(agent).content == self.PLAN.content
+        assert len(worker.calls) == 11

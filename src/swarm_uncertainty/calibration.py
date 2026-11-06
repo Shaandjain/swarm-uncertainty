@@ -88,6 +88,20 @@ def threshold_sweep(certainties: Sequence[float], labels: Sequence[int]) -> list
     return points
 
 
+def fit_threshold(points: Sequence[SweepPoint], episodes: int, budget: float) -> SweepPoint | None:
+    """The sweep point that catches the most errors at no more than `budget` human calls per
+    episode; ties go to the fewer calls. None if no point with any calls fits the budget."""
+    fits = [p for p in points if p.interventions and p.interventions / episodes <= budget]
+    return max(fits, key=lambda p: (p.caught, -p.interventions), default=None)
+
+
+def as_u_threshold(point: SweepPoint, certainties: Sequence[float]) -> float:
+    """The orchestrator's `threshold` (escalate when U >= threshold) that calls a human on the
+    same decisions as `point` (certainty < point.threshold)."""
+    below = [c for c in set(certainties) if c < point.threshold]
+    return round(1.0 - max(below), 6)
+
+
 AGGREGATORS: dict[str, Callable[[Sequence[float]], float]] = {
     "mean": lambda cs: sum(cs) / len(cs),
     "product": math.prod,

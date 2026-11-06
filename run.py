@@ -2,15 +2,31 @@
 
 Writes runs/<name>/: config.json, episodes.jsonl (one line per task x trial),
 decisions.jsonl (one line per decision point) and sims/ (full tau2 trajectories).
+Stops on an out-of-credit or bad-key error, or after --max-failures in a row; --resume then
+runs only the task x trial pairs not yet in episodes.jsonl.
 """
 
 import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from pathlib import Path
 
 from swarm_uncertainty.config import RunConfig, sanitize_no_proxy, use_own_anthropic_key
+
+FATAL = (
+    "credit balance is too low",
+    "invalid x-api-key",
+    "authentication_error",
+    "insufficient_quota",
+)
+
+
+def fatal(error: Exception) -> bool:
+    """Errors that will fail every remaining episode too."""
+    text = str(error).lower()
+    return any(marker in text for marker in FATAL)
 
 
 def main() -> int:
@@ -25,6 +41,15 @@ def main() -> int:
     )
     parser.add_argument("--workers", type=int, default=1, help="episodes run in parallel")
     parser.add_argument("--out", type=Path, default=Path("runs"))
+    parser.add_argument(
+        "--threshold", type=float, help="override the config's threshold, e.g. one fitted on train"
+    )
+    parser.add_argument(
+        "--resume", action="store_true", help="keep existing results and run only what is missing"
+    )
+    parser.add_argument(
+        "--max-failures", type=int, default=3, help="stop after this many failures in a row"
+    )
     args = parser.parse_args()
 
     removed = sanitize_no_proxy()
@@ -33,6 +58,8 @@ def main() -> int:
     use_own_anthropic_key()
 
     cfg = RunConfig.load(args.config)
+    if args.threshold is not None:
+        cfg = replace(cfg, threshold=args.threshold)
     # after the env fix: tau2 reads proxy settings and data paths at import time
     from tau2.runner.helpers import load_tasks
 
@@ -48,23 +75,43 @@ def main() -> int:
     trials = args.trials or cfg.trials
 
     out = args.out / cfg.name
+    done: set[tuple[str, int]] = set()
     if (out / "episodes.jsonl").exists():
-        print(f"{out} already has results; move them or pick another --out", file=sys.stderr)
-        return 2
-    (out / "sims").mkdir(parents=True, exist_ok=True)
-    (out / "config.json").write_text(json.dumps(cfg.dump(), indent=2))
+        if not args.resume:
+            print(
+                f"{out} already has results; --resume, move them or pick another --out",
+                file=sys.stderr,
+            )
+            return 2
+        with (out / "episodes.jsonl").open(encoding="utf-8") as handle:
+            done = {(e["task_id"], e["trial"]) for e in map(json.loads, handle) if e}
+    if done:
+        # Only keys the earlier run recorded are compared, so fields added since keep working.
+        before = json.loads((out / "config.json").read_text())
+        changed = [k for k, v in before.items() if json.loads(json.dumps(cfg.dump()))[k] != v]
+        if changed:
+            print(f"cannot resume: config differs from {out} in {changed}", file=sys.stderr)
+            return 2
+    else:
+        (out / "sims").mkdir(parents=True, exist_ok=True)
+        (out / "config.json").write_text(json.dumps(cfg.dump(), indent=2))
     print(
         f"{cfg.name}: {cfg.domain}/{cfg.split}, {len(tasks)} tasks x {trials} trials, "
-        f"K={cfg.k_workers} N={cfg.n_samples} escalate={cfg.escalate} -> {out}"
+        f"K={cfg.k_workers} N={cfg.n_samples} threshold={cfg.threshold} "
+        f"escalate={cfg.escalate} -> {out}"
     )
+    if done:
+        print(f"resuming: {len(done)} episodes already done")
 
     spent = 0.0
     failed = 0
+    in_a_row = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(run_episode, cfg, task, trial): (task.id, trial)
             for task in tasks
             for trial in range(trials)
+            if (task.id, trial) not in done
         }
         for future in as_completed(futures):
             task_id, trial = futures[future]
@@ -72,8 +119,16 @@ def main() -> int:
                 result, records, simulation = future.result()
             except Exception as error:  # noqa: BLE001  one failed episode must not end the run
                 failed += 1
+                in_a_row += 1
                 print(f"task {task_id} trial {trial}: failed: {error}", file=sys.stderr)
+                # Out of credits or a dead key fails every episode the same way: stop rather than
+                # burn through the task list, then rerun with --resume.
+                if fatal(error) or in_a_row >= args.max_failures:
+                    print("stopping; rerun with --resume once fixed", file=sys.stderr)
+                    pool.shutdown(cancel_futures=True)
+                    return 1
                 continue
+            in_a_row = 0
             write_records(out / "decisions.jsonl", records)
             with (out / "episodes.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(result.to_dict()) + "\n")

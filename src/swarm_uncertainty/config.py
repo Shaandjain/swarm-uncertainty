@@ -30,6 +30,8 @@ class RunConfig:
     seed: int = 0
     plan_probe: bool = False
     """Also measure agreement at replies that put a write to the user (shadow only)."""
+    plan_ask: bool = False
+    """s4: when the plan's samples disagree (U >= threshold), ask the user instead of proposing."""
     notes: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -42,6 +44,8 @@ class RunConfig:
             raise ValueError("worker_models must list exactly k_workers models")
         if self.plan_probe and self.k_workers != 1:
             raise ValueError("plan_probe supports one worker")
+        if self.plan_ask and not self.plan_probe:
+            raise ValueError("plan_ask needs plan_probe")
         if self.escalate and self.oracle == "none":
             raise ValueError("escalate=true needs an oracle")
 

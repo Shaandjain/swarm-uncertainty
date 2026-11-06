@@ -9,9 +9,15 @@ With plan probing on, a plain reply is also checked: if the user answering "yes"
 to a write or transfer, the reply put an action to the user. N samples then write the reply
 afresh, each hears "yes", and the call each makes next is its planned action. The plans are
 scored and recorded as a "plan" decision, but the agent's own reply is what gets sent.
+
+With asking on as well (s4), a plan whose samples disagree (U >= the threshold) is not put to
+the user. The agent is shown the distinct plans its samples made and asked for one question
+that decides between them, and that question is sent instead of the proposal.
 """
 
 from __future__ import annotations
+
+import json
 
 from tau2.agent.llm_agent import LLMAgent, LLMAgentState
 from tau2.data_model.message import AssistantMessage, UserMessage
@@ -20,10 +26,20 @@ from tau2.utils.utils import get_now
 
 from swarm_uncertainty.actions import RESPOND_TOOL, TRANSFER_TOOLS, Proposal, proposal_from_message
 from swarm_uncertainty.llm import DecisionPacket, Usage
-from swarm_uncertainty.orchestrator import Orchestrator, decision_type, write_tool_names
+from swarm_uncertainty.orchestrator import (
+    Decision,
+    Orchestrator,
+    decision_type,
+    write_tool_names,
+)
 from swarm_uncertainty.records import DecisionRecord, DecisionType
 
 CONFIRMATION = "Yes, please go ahead."
+ASK_NOTE = (
+    "Before proposing anything, note: when this conversation was replayed, you planned "
+    "different actions:\n{options}\nDo not propose an action or call a tool yet. Ask the "
+    "customer one short question whose answer decides which of these is right."
+)
 
 
 class SamplingAgent(LLMAgent[LLMAgentState]):
@@ -38,6 +54,7 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
         trial: int,
         llm_args: dict | None = None,
         probe_plans: bool = False,
+        ask_at_plan: bool = False,
     ) -> None:
         super().__init__(tools=tools, domain_policy=domain_policy, llm=llm, llm_args=llm_args)
         self.orchestrator = orchestrator
@@ -46,13 +63,18 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
         self.trial = trial
         self.records: list[DecisionRecord] = []
         self.probe_plans = probe_plans
+        self.ask_at_plan = ask_at_plan
+        self._asks = 0
 
     def _generate_next_message(self, message, state: LLMAgentState) -> AssistantMessage:
         first = super()._generate_next_message(message, state)
         kind = self._decision_type(first)
         if kind is None:
             if self.probe_plans and not first.tool_calls:
-                self._probe_plan(first, state.system_messages + state.messages)
+                history = state.system_messages + state.messages
+                plan = self._probe_plan(first, history)
+                if plan is not None and self._should_ask(plan):
+                    return self._ask(first, state, plan)
             return first
 
         packet = self._packet(state.system_messages + state.messages)
@@ -93,12 +115,12 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
     # decisions, the samples disagreed on 16 while the agent was forming its plan, on 6 once
     # the plan was written, and on 3 at the action: writing the plan fixes it, and every
     # later sample repeats it.
-    def _probe_plan(self, reply: AssistantMessage, history: list) -> None:
+    def _probe_plan(self, reply: AssistantMessage, history: list) -> Decision | None:
         usage = Usage()
         acting = self.write_tools | TRANSFER_TOOLS
         if self._after_yes(history, reply, usage).tool not in acting:
             self.orchestrator.usage.add(usage)
-            return
+            return None
         plans = []
         for _ in range(self.orchestrator.n_samples):
             sample = self._sample(history, usage)
@@ -118,6 +140,43 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
         record.tokens_in, record.tokens_out = usage.tokens_in, usage.tokens_out
         record.cost_usd = usage.cost_usd
         self.records.append(record)
+        return decision
+
+    def _should_ask(self, plan: Decision) -> bool:
+        return (
+            self.ask_at_plan
+            and plan.pooled_uncertainty >= self.orchestrator.threshold
+            and self._asks < self.orchestrator.max_escalations
+        )
+
+    def _ask(
+        self, reply: AssistantMessage, state: LLMAgentState, plan: Decision
+    ) -> AssistantMessage:
+        """One question that decides between the plans, sent in place of `reply`. If the model
+        calls a tool instead of asking, `reply` is sent as before."""
+        options = "\n".join(
+            f"- {c.example.tool}({json.dumps(c.example.args, sort_keys=True)}): "
+            f"{c.size} of {sum(x.size for x in plan.clusters)} replays"
+            for c in plan.clusters
+        )
+        note = ASK_NOTE.format(options=options)
+        system = [
+            m.model_copy(update={"content": f"{m.content}\n\n{note}"})
+            for m in state.system_messages
+        ]
+        usage = Usage()
+        question = self._sample(system + state.messages, usage)
+        self.orchestrator.usage.add(usage)
+        record = plan.record
+        record.tokens_in += usage.tokens_in
+        record.tokens_out += usage.tokens_out
+        record.cost_usd += usage.cost_usd
+        if question.tool != RESPOND_TOOL or not question.message.content:
+            record.extra["asked"] = None
+            return reply
+        self._asks += 1
+        record.extra["asked"] = question.message.content
+        return question.message.model_copy(update={"timestamp": get_now()})
 
     def _decision_type(self, message: AssistantMessage) -> DecisionType | None:
         kinds = [decision_type(c.name, self.write_tools) for c in message.tool_calls or []]
