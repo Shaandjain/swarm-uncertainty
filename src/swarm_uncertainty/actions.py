@@ -17,6 +17,9 @@ STOP_TOOL = "__stop__"
 RESPOND_TOOL = "__respond__"
 """Pseudo-tool name for a plain reply. All replies share one cluster, whatever they say."""
 
+# The first pilot reported an AUROC of 0.90, which turned out to be a bug here: five samples
+# that all chose to transfer wrote five different summaries and were counted as five
+# different actions. Grouping transfers by tool name brought the pilot down to 0.48.
 TRANSFER_TOOLS = frozenset({"transfer_to_human_agents", "request_human_agent_transfer"})
 """Transfers cluster by tool name only: the summary is free text, so no two samples match."""
 

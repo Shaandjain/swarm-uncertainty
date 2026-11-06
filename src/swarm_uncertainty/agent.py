@@ -56,6 +56,8 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
             return first
 
         packet = self._packet(state.system_messages + state.messages)
+        # With one worker and one sample, the agent's own call is sent unchanged, so the
+        # baseline is exactly tau2's agent and every condition runs through the same code.
         given: list[Proposal] = []
         if self.orchestrator.n_samples == 1 and len(self.orchestrator.workers) == 1:
             given.append(proposal_from_message(first, self.write_tools, "w0"))
@@ -87,6 +89,10 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
         yes = UserMessage(role="user", content=CONFIRMATION)
         return self._sample([*history, reply, yes], usage)
 
+    # The plan check exists because the action check comes too late. On the same 45
+    # decisions, the samples disagreed on 16 while the agent was forming its plan, on 6 once
+    # the plan was written, and on 3 at the action: writing the plan fixes it, and every
+    # later sample repeats it.
     def _probe_plan(self, reply: AssistantMessage, history: list) -> None:
         usage = Usage()
         acting = self.write_tools | TRANSFER_TOOLS

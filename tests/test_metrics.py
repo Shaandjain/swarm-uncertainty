@@ -3,6 +3,7 @@ import pytest
 from swarm_uncertainty.metrics import (
     auroc,
     bootstrap_ci,
+    cohen_kappa,
     expected_calibration_error,
     mean_pass_at_k,
     pass_at_k,
@@ -76,3 +77,18 @@ class TestBootstrap:
         estimate = self.mean([x for g in groups for x in g])
         assert low <= estimate <= high
         assert (low, high) == bootstrap_ci(groups, self.mean, seed=3)
+
+
+class TestCohenKappa:
+    def test_perfect_and_chance_agreement(self):
+        assert cohen_kappa(["a", "b", "a", "b"], ["a", "b", "a", "b"]) == 1.0
+        assert cohen_kappa(["a", "a", "b", "b"], ["a", "b", "a", "b"]) == 0.0
+
+    def test_known_value(self):
+        a = [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
+        b = [1, 1, 1, 0, 0, 0, 0, 0, 0, 1]
+        assert cohen_kappa(a, b) == pytest.approx(0.583, abs=1e-3)
+
+    def test_mismatched_lengths(self):
+        with pytest.raises(ValueError):
+            cohen_kappa([1], [1, 0])

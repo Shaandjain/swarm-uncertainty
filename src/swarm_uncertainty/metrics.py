@@ -18,6 +18,9 @@ def auroc(scores: Sequence[float], labels: Sequence[int]) -> float:
 
     Ties count half. Returns 0.5 when either class is empty.
     """
+    # Every wrong decision is compared with every right one: a higher score counts 1, a tie
+    # 0.5 and a lower score 0. Most of our decisions have U = 0 whether right or wrong, so
+    # nearly every pair is a tie, which is why our results sit close to 0.5.
     positives = [s for s, y in zip(scores, labels, strict=True) if y == 1]
     negatives = [s for s, y in zip(scores, labels, strict=True) if y == 0]
     if not positives or not negatives:
@@ -112,6 +115,19 @@ def mean_pass_at_k(trials_by_task: dict[str, Sequence[int]], k: int) -> float:
     return sum(pass_at_k(t, k) for t in trials_by_task.values()) / len(trials_by_task)
 
 
+def cohen_kappa[T](a: Sequence[T], b: Sequence[T]) -> float:
+    """Agreement between two annotators beyond what their label frequencies give by chance.
+
+    1 = perfect, 0 = chance. Returns 1.0 when both use one and the same label throughout.
+    """
+    n = len(a)
+    if n == 0 or n != len(b):
+        raise ValueError("need two equally long, non-empty label lists")
+    observed = sum(x == y for x, y in zip(a, b, strict=True)) / n
+    expected = sum(a.count(c) * b.count(c) for c in set(a) | set(b)) / n**2
+    return 1.0 if expected == 1 else (observed - expected) / (1 - expected)
+
+
 def bootstrap_ci[T](
     groups: Sequence[Sequence[T]],
     statistic: Callable[[list[T]], float],
@@ -123,6 +139,8 @@ def bootstrap_ci[T](
     """Percentile interval from resampling whole groups (tasks) with replacement.
 
     Decisions within a task are correlated, so tasks, not decisions, are the unit resampled.
+    Treating two attempts at one task as independent would make the interval look tighter
+    than it is.
     """
     rng = random.Random(seed)
     values = []

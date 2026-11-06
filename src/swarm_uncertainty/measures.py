@@ -54,6 +54,9 @@ def uncertainty(proposals: Sequence[Proposal]) -> float:
     return 1.0 - agreement(proposals)
 
 
+# U = 1 - (size of the largest group / number of samples). Four of five samples agreeing
+# gives U = 0.2, the "80% certain" reading Prof. Cohen described. With five samples, U can
+# only take the values 0, 0.2, 0.4, 0.6 and 0.8.
 def pooled_uncertainty(proposals_by_worker: Iterable[Sequence[Proposal]]) -> float:
     """U: uncertainty over every worker's proposals pooled together."""
     pooled: list[Proposal] = []

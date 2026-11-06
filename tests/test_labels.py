@@ -1,5 +1,5 @@
 from swarm_uncertainty.actions import RESPOND_TOOL
-from swarm_uncertainty.labels import label_episode
+from swarm_uncertainty.labels import keep_agent_errors, label_episode
 from swarm_uncertainty.records import DecisionRecord
 
 WRITES = frozenset({"cancel_pending_order", "modify_pending_order_address"})
@@ -82,3 +82,13 @@ def test_a_plan_takes_the_label_of_the_action_that_follows():
         decision(2, "cancel_pending_order", CANCEL_W1, kind="plan"),
     ]
     assert labels(records) == [(1, False), (1, False), (None, True)]
+
+
+def test_an_audit_drops_wrong_actions_it_blames_elsewhere_and_their_plans():
+    plan, blamed, right = decision(0, "x", kind="plan"), decision(1, "x"), decision(2, "x")
+    slip, unaudited = decision(3, "x"), decision(4, "x")
+    plan.step_label, blamed.step_label, right.step_label = 1, 1, 0
+    slip.step_label, unaudited.step_label = 1, 1
+    blame = {("t", 0, 1): "user_simulator", ("t", 0, 3): "slip"}
+    kept = keep_agent_errors([plan, blamed, right, slip, unaudited], blame)
+    assert [r.decision_index for r in kept] == [2, 3, 4]

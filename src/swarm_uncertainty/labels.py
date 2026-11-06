@@ -18,6 +18,22 @@ from typing import Any
 from swarm_uncertainty.actions import READ_PREFIX, RESPOND_TOOL, TRANSFER_TOOLS, action_key
 from swarm_uncertainty.records import DecisionRecord
 
+# Added after a hand audit of every wrong action found that about two thirds were not the
+# agent's mistakes: the simulated customer departed from its script, or the answer key
+# contradicted the store policy. A second annotator using the same rubric agreed with the
+# hand labels on 26 of 30 actions (Cohen's kappa 0.83).
+AUDIT_CATEGORIES = (
+    "slip",
+    "interpretation",
+    "policy",
+    "user_simulator",
+    "answer_key",
+    "label_artifact",
+)
+"""Where a wrong action came from, as an audit (scripts/audit.py) assigns it."""
+AGENT_ERRORS = frozenset(AUDIT_CATEGORIES[:3])
+"""The categories that are the agent's own mistakes; the rest come from the benchmark."""
+
 
 def label_episode(
     records: Sequence[DecisionRecord],
@@ -32,6 +48,8 @@ def label_episode(
     )
     ordered = sorted(records, key=lambda r: r.decision_index)
     acted = [r for r in ordered if r.decision_type != "plan"]
+    # After the first wrong action the conversation has left the answer key's path, so later
+    # decisions can no longer be judged against it.
     diverged = False
     for record in acted:
         record.extra["after_divergence"] = diverged
@@ -52,3 +70,32 @@ def label_episode(
         ]
         plan.extra["after_divergence"] = any(r.step_label == 1 for r in before)
         plan.step_label = after[0].step_label if after else None
+
+
+def keep_agent_errors(
+    records: Sequence[DecisionRecord], blame: dict[tuple[str, int, int], str]
+) -> list[DecisionRecord]:
+    """Drop the wrong actions an audit blames on something other than the agent, and the plans
+    that took their label from them. `blame` maps (task, trial, decision index) to a category;
+    wrong actions it has no entry for are kept."""
+
+    def key(r: DecisionRecord) -> tuple[str, int, int]:
+        return (r.task_id, r.trial, r.decision_index)
+
+    actions = sorted(
+        (r for r in records if r.decision_type != "plan" and r.step_label is not None), key=key
+    )
+
+    def source(r: DecisionRecord) -> tuple[str, int, int] | None:
+        if r.decision_type != "plan":
+            return key(r)
+        later = [
+            a
+            for a in actions
+            if (a.task_id, a.trial) == (r.task_id, r.trial) and a.decision_index > r.decision_index
+        ]
+        return key(later[0]) if later else None
+
+    return [
+        r for r in records if r.step_label != 1 or blame.get(source(r)) in AGENT_ERRORS | {None}
+    ]

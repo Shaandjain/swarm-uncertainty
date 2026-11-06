@@ -125,6 +125,9 @@ class Orchestrator:
         answer: OracleAnswer | None = None
         escalated = False
         action = clusters[0].example
+        # The oracle stands in for a perfect human (the answer key in s2), to measure the most
+        # escalation could achieve before involving people. It was consulted 6 times in 144
+        # episodes, because the samples rarely disagree at the action.
         if would_escalate and can_escalate:
             escalated = True
             self._escalations += 1

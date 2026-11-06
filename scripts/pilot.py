@@ -2,7 +2,9 @@
 
 Prints to the terminal. Decisions after the first wrong write in an episode are left out of
 the RQ1 numbers (first-divergence rule). Plan decisions (configs with plan_probe) are scored
-separately from actions.
+separately from actions. --audit <annotator> keeps only the wrong actions that annotator's
+audit (<run>/audit-<annotator>.jsonl, from scripts/audit.py) calls the agent's own mistakes.
+--pool scores the runs as one, e.g. two batches of trials of the same condition.
 """
 
 import argparse
@@ -10,8 +12,9 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from swarm_uncertainty.labels import keep_agent_errors
 from swarm_uncertainty.metrics import auroc, bootstrap_ci, mean_pass_at_k
-from swarm_uncertainty.records import read_records
+from swarm_uncertainty.records import DecisionRecord, read_records
 
 
 def episodes(run: Path) -> list[dict]:
@@ -36,10 +39,18 @@ def outcome_summary(run: Path) -> None:
     print(f"  cost per episode ${sum(cost) / len(cost):.4f}, total ${sum(cost):.2f}")
 
 
-def rq1(run: Path, plans: bool = False) -> None:
-    records = [
-        r for r in read_records(run / "decisions.jsonl") if (r.decision_type == "plan") == plans
-    ]
+def decisions(run: Path, audit: str | None) -> list[DecisionRecord]:
+    records = list(read_records(run / "decisions.jsonl"))
+    if audit is None:
+        return records
+    with (run / f"audit-{audit}.jsonl").open(encoding="utf-8") as handle:
+        rows = [json.loads(line) for line in handle if line.strip()]
+    blame = {(r["task_id"], r["trial"], r["decision_index"]): r["category"] for r in rows}
+    return keep_agent_errors(records, blame)
+
+
+def rq1(records: list[DecisionRecord], plans: bool = False) -> None:
+    records = [r for r in records if (r.decision_type == "plan") == plans]
     if plans and not records:
         return
     print("  at the plan:" if plans else "  at the action:")
@@ -81,11 +92,23 @@ def rq1(run: Path, plans: bool = False) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("runs", type=Path, nargs="+")
+    parser.add_argument("--audit", help="annotator whose audit decides which errors count")
+    parser.add_argument("--pool", action="store_true", help="score the runs as one")
     args = parser.parse_args()
-    for run in args.runs:
-        outcome_summary(run)
-        rq1(run)
-        rq1(run, plans=True)
+    if args.audit:
+        print(f"wrong actions: only those audit-{args.audit} calls the agent's own\n")
+    batches = {run: decisions(run, args.audit) for run in args.runs}
+    if args.pool:
+        batches = {"pooled": [r for records in batches.values() for r in records]}
+        for run in args.runs:
+            outcome_summary(run)
+    for name, records in batches.items():
+        if args.pool:
+            print(f"{name}: {', '.join(str(run) for run in args.runs)}")
+        else:
+            outcome_summary(name)
+        rq1(records)
+        rq1(records, plans=True)
         print()
     return 0
 
