@@ -20,6 +20,7 @@ FATAL = (
     "invalid x-api-key",
     "authentication_error",
     "insufficient_quota",
+    "no credits remaining",
 )
 
 
