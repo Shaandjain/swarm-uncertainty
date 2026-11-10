@@ -26,6 +26,8 @@ class DecisionPacket:
     """tau2 messages (system prompt and history) for live clients."""
     tools: tuple[Any, ...] = ()
     write_tools: frozenset[str] = frozenset()
+    tool_choice: str | None = None
+    """"none" makes the model answer in text; the tools stay listed so the history stays valid."""
 
 
 @dataclass
@@ -99,6 +101,7 @@ class LiteLLMClient:
             model=self.model,
             messages=list(packet.messages),
             tools=list(packet.tools),
+            tool_choice=packet.tool_choice,
             call_name="worker_sample",
             **{**self.llm_args, "temperature": temperature},
         )

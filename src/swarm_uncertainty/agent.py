@@ -36,9 +36,11 @@ from swarm_uncertainty.records import DecisionRecord, DecisionType
 
 CONFIRMATION = "Yes, please go ahead."
 ASK_NOTE = (
-    "Before proposing anything, note: when this conversation was replayed, you planned "
-    "different actions:\n{options}\nDo not propose an action or call a tool yet. Ask the "
-    "customer one short question whose answer decides which of these is right."
+    "Before your next reply, note: when this conversation was replayed, you went on to take "
+    "different actions:\n{options}\nThese differ, so something the customer wants is not yet "
+    "settled. Your next reply must be one short question to the customer, ending in a question "
+    "mark, about the detail on which these actions differ. Do not confirm, describe or carry "
+    "out any of them, and do not call a tool."
 )
 
 
@@ -90,18 +92,21 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
         # tau2 orders the trajectory by timestamp, so stamp the chosen sample as sent now
         return decision.action.message.model_copy(update={"timestamp": get_now()})
 
-    def _packet(self, messages: list) -> DecisionPacket:
+    def _packet(self, messages: list, tool_choice: str | None = None) -> DecisionPacket:
         return DecisionPacket(
             policy=self.domain_policy,
             conversation=(),
             messages=tuple(messages),
             tools=tuple(self.tools),
             write_tools=self.write_tools,
+            tool_choice=tool_choice,
         )
 
-    def _sample(self, messages: list, usage: Usage) -> Proposal:
+    def _sample(self, messages: list, usage: Usage, tool_choice: str | None = None) -> Proposal:
         response = self.orchestrator.workers[0].propose(
-            self._packet(messages), temperature=self.orchestrator.temperature, worker_id="w0"
+            self._packet(messages, tool_choice),
+            temperature=self.orchestrator.temperature,
+            worker_id="w0",
         )
         usage.add(response.usage)
         return response.proposal
@@ -165,7 +170,7 @@ class SamplingAgent(LLMAgent[LLMAgentState]):
             for m in state.system_messages
         ]
         usage = Usage()
-        question = self._sample(system + state.messages, usage)
+        question = self._sample(system + state.messages, usage, tool_choice="none")
         self.orchestrator.usage.add(usage)
         record = plan.record
         record.tokens_in += usage.tokens_in

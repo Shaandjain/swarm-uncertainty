@@ -152,6 +152,8 @@ class TestAskAtPlan:
         record = agent.records[0]
         assert record.pooled_uncertainty == pytest.approx(0.4)
         assert record.extra["asked"] == question.content
+        assert worker.calls[-1][0].tool_choice == "none"
+        assert all(c[0].tool_choice is None for c in worker.calls[:-1])
         system = worker.calls[-1][0].messages[0].content
         assert "#W1" in system and "#W2" in system and "3 of 5" in system
 
