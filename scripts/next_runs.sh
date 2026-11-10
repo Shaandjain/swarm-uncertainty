@@ -2,9 +2,10 @@
 # The runs after the Nov 6 meeting, one stage at a time:
 #   scripts/next_runs.sh smoke                 2 tasks, 1 trial: ten samples recorded, cost per episode
 #   scripts/next_runs.sh train                 s3-n10 on train (~$15)
-#   scripts/next_runs.sh fit [budget]          thresholds for <= budget human calls per episode (0.1)
+#   scripts/next_runs.sh fit [budget]          thresholds for <= budget human calls per episode (0.25)
 #   scripts/next_runs.sh test <action-t> <plan-t>
 #                                              s3-n10, s2 and s4 on the 40 test tasks (~$25)
+#   scripts/next_runs.sh compare               pass rate and human calls of s2 and s4 against s3-n10
 # Every run resumes where it stopped, so a stage can be rerun after topping up credits.
 set -euo pipefail
 
@@ -39,7 +40,7 @@ train)
     ;;
 fit)
     uv run --group plots python scripts/calibrate.py runs/train/s3-n10 \
-        --budget "${2:-0.1}" --figures runs/figures/s3-n10
+        --budget "${2:-0.25}" --figures runs/figures/s3-n10
     ;;
 test)
     if [ $# -ne 3 ]; then
@@ -50,8 +51,11 @@ test)
     run configs/s2-test.yaml runs/test --threshold "$2"
     run configs/s4-test.yaml runs/test --threshold "$3"
     ;;
+compare)
+    uv run python scripts/compare.py runs/test/s3-n10-test runs/test/s2-test runs/test/s4-test
+    ;;
 *)
-    sed -n '2,8p' "$0"
+    sed -n '2,9p' "$0"
     exit 2
     ;;
 esac
