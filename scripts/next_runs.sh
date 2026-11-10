@@ -3,9 +3,11 @@
 #   scripts/next_runs.sh smoke                 2 tasks, 1 trial: ten samples recorded, cost per episode
 #   scripts/next_runs.sh train                 s3-n10 on train (~$15)
 #   scripts/next_runs.sh fit [budget]          thresholds for <= budget human calls per episode (0.25)
-#   scripts/next_runs.sh test <action-t> <plan-t>
-#                                              s3-n10, s2 and s4 on the 40 test tasks (~$25)
-#   scripts/next_runs.sh compare               pass rate and human calls of s2 and s4 against s3-n10
+#   scripts/next_runs.sh test                  s3-n10 on the 40 held-out test tasks, measure only (~$5)
+#   scripts/next_runs.sh target <plan-t>       s3 and s4 on the 28 tasks that carry the signal,
+#                                              6 attempts each (~$22)
+#   scripts/next_runs.sh audit                 second annotator on the new runs (~$2)
+#   scripts/next_runs.sh compare               pass rate and questions asked, s4 against s3
 # Every run resumes where it stopped, so a stage can be rerun after topping up credits.
 set -euo pipefail
 
@@ -43,19 +45,25 @@ fit)
         --budget "${2:-0.25}" --figures runs/figures/s3-n10
     ;;
 test)
-    if [ $# -ne 3 ]; then
-        echo "usage: $0 test <action threshold> <plan threshold>  (from: $0 fit)" >&2
+    run configs/s3-n10-test.yaml runs/test
+    ;;
+target)
+    if [ $# -ne 2 ]; then
+        echo "usage: $0 target <plan threshold>  (from: $0 fit)" >&2
         exit 2
     fi
-    run configs/s3-n10-test.yaml runs/test
-    run configs/s2-test.yaml runs/test --threshold "$2"
-    run configs/s4-test.yaml runs/test --threshold "$3"
+    run configs/s3-target.yaml runs/target
+    run configs/s4-target.yaml runs/target --threshold "$2"
+    ;;
+audit)
+    uv run python scripts/audit.py runs/train/s3-n10 runs/test/s3-n10-test \
+        runs/target/s3-target runs/target/s4-target
     ;;
 compare)
-    uv run python scripts/compare.py runs/test/s3-n10-test runs/test/s2-test runs/test/s4-test
+    uv run python scripts/compare.py runs/target/s3-target runs/target/s4-target
     ;;
 *)
-    sed -n '2,9p' "$0"
+    sed -n '2,11p' "$0"
     exit 2
     ;;
 esac

@@ -1,0 +1,50 @@
+# s3-target, but a plan whose samples disagree (U >= threshold) is replaced by one question to
+# the customer. run with --threshold from calibrate.py --budget on runs/train/s3-n10.
+name: s4-target
+domain: retail
+split: train
+k_workers: 1
+n_samples: 10
+threshold: 0.4
+escalate: false
+oracle: none
+plan_probe: true
+plan_ask: true
+orchestrator_model: claude-haiku-5-5
+worker_models:
+  - claude-haiku-5-5
+user_model: gpt-4.1-2025-04-14
+temperature: 1.0
+trials: 6
+max_escalations_per_task: 3
+spend_cap_usd: 15
+seed: 0
+task_ids:
+  - "0"
+  - "6"
+  - "10"
+  - "11"
+  - "13"
+  - "16"
+  - "30"
+  - "31"
+  - "35"
+  - "37"
+  - "41"
+  - "43"
+  - "50"
+  - "54"
+  - "69"
+  - "72"
+  - "75"
+  - "78"
+  - "83"
+  - "88"
+  - "91"
+  - "92"
+  - "98"
+  - "99"
+  - "104"
+  - "109"
+  - "110"
+  - "112"
