@@ -56,6 +56,24 @@ which is fixed to `gpt-4.1` and needs `OPENAI_API_KEY`. `db_reward` is the datab
 `uv run python scripts/collect.py` loads every run under `runs/` into `runs/traces.db`
 (SQLite): episodes, decisions, every sampled proposal, and every message of every episode.
 
+## Which signal sees which error
+
+Self-consistency measures how much the agent's answer varies, so it misses mistakes the agent
+makes the same way every time. Three scripts test other signals on the decisions a run already
+recorded, without rerunning episodes:
+
+```bash
+uv run python scripts/audit.py runs/train/s3-n10        # where each wrong action came from
+uv run python scripts/review.py runs/train/s3-n10       # a reviewer's verdict on every action
+uv run python scripts/signals.py runs/train/s3-n10      # each signal against each kind of error
+uv run python scripts/intervene.py runs/train/s3-n10 --intervention feedback
+```
+
+`signals.py` splits wrong actions into slips, misreadings and benchmark errors and prints, for
+each signal, how often it fires and what it catches. `intervene.py` rebuilds the conversation
+at each flagged action and samples the agent's next step with and without an intervention, so
+each state is its own control; whole-episode comparisons are too noisy at these sample sizes.
+
 | config | N | escalation |
 |---|---|---|
 | s0 | 1 | off |
@@ -77,6 +95,7 @@ src/swarm_uncertainty/
   oracle.py         oracles the orchestrator can consult
   records.py        one record per decision point
   metrics.py        auroc, calibration, risk-coverage, pass^k
+  signals.py        a yes/no signal scored against each kind of error
   config.py         run configuration
   tasks.py          tau-bench task loading
 configs/            one yaml per condition

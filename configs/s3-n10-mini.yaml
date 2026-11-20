@@ -1,0 +1,19 @@
+# s3-n10 with a weaker worker (gpt-4.1-mini), to see whether it leaves more to fix than Haiku 5.5.
+name: s3-n10-mini
+domain: retail
+split: train
+k_workers: 1
+n_samples: 10
+threshold: 0.4
+escalate: false
+oracle: none
+plan_probe: true
+orchestrator_model: gpt-4.1-mini-2025-04-14
+worker_models:
+  - gpt-4.1-mini-2025-04-14
+user_model: gpt-4.1-2025-04-14
+temperature: 1.0
+trials: 2
+max_escalations_per_task: 3
+spend_cap_usd: 8
+seed: 0
