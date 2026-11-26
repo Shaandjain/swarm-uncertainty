@@ -169,7 +169,118 @@ def replay_figure() -> None:
     fig.savefig(HERE / "nov27-4-replay.png")
 
 
+def box(ax, x, y, w, h, text, *, fill="white", dashed=False, bold=False):
+    from matplotlib.patches import FancyBboxPatch
+
+    ax.add_patch(
+        FancyBboxPatch(
+            (x - w / 2, y - h / 2),
+            w,
+            h,
+            boxstyle="round,pad=0.02,rounding_size=0.08",
+            fc=fill,
+            ec=NAVY,
+            lw=1.3,
+            ls="--" if dashed else "-",
+        )
+    )
+    ax.text(x, y, text, ha="center", va="center", fontsize=13, fontweight="bold" if bold else None)
+
+
+def arrow(ax, start, end, label="", *, offset=(0, 0.14), curve=0.0, dashed=False):
+    ax.annotate(
+        "",
+        xy=end,
+        xytext=start,
+        arrowprops={
+            "arrowstyle": "-|>",
+            "color": NAVY,
+            "lw": 1.3,
+            "ls": "--" if dashed else "-",
+            "connectionstyle": f"arc3,rad={curve}",
+        },
+    )
+    if label:
+        mx, my = (start[0] + end[0]) / 2 + offset[0], (start[1] + end[1]) / 2 + offset[1]
+        ax.text(mx, my, label, ha="center", va="center", fontsize=12, color=GREY)
+
+
+def architecture_figure() -> None:
+    """The first setup (agreement between samples) and the current one (review of the call)."""
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7.6))
+    for ax in axes:
+        ax.set(xlim=(0, 10), ylim=(0, 3.7))
+        ax.axis("off")
+    w, h = 1.9, 0.9
+
+    ax = axes[0]
+    ax.set_title("First setup: agreement between samples", loc="left")
+    box(ax, 1.1, 2.4, w, h, "Customer")
+    box(ax, 3.6, 2.4, w, h, "Agent", fill=LIGHT)
+    box(ax, 6.1, 2.4, w, h, "Sample the\ndecision 10 times")
+    box(ax, 8.6, 2.4, w, h, "Uncertainty U\nfrom agreement")
+    box(ax, 8.6, 0.6, w, h, "Act on the\nmajority")
+    box(ax, 6.1, 0.6, w, h, "Ask the customer\none question")
+    arrow(ax, (2.05, 2.5), (2.65, 2.5))
+    arrow(ax, (2.65, 2.3), (2.05, 2.3))
+    arrow(ax, (4.55, 2.4), (5.15, 2.4))
+    arrow(ax, (7.05, 2.4), (7.65, 2.4))
+    arrow(ax, (8.6, 1.95), (8.6, 1.05))
+    ax.text(8.75, 1.5, r"$U < \tau$", va="center", fontsize=14)
+    arrow(ax, (8.0, 1.95), (6.7, 1.05))
+    ax.text(7.1, 1.6, r"$U \geq \tau$", va="center", ha="right", fontsize=14)
+    ax.plot([5.15, 1.1], [0.6, 0.6], color=NAVY, lw=1.3)
+    arrow(ax, (1.1, 0.6), (1.1, 1.95))
+
+    ax = axes[1]
+    ax.set_title("Current setup: review of the call", loc="left")
+    box(ax, 1.1, 2.2, w, h, "Customer")
+    box(ax, 3.6, 2.2, w, h, "Agent", fill=LIGHT)
+    box(ax, 6.1, 2.2, w, h, "Proposed call")
+    box(ax, 8.6, 2.2, w, h, "Reviewer\n(policy, conversation,\ncall)", fill=LIGHT)
+    box(ax, 8.6, 0.6, w, h, "Act")
+    box(ax, 3.6, 0.6, w, h, "Human", dashed=True)
+    arrow(ax, (2.05, 2.3), (2.65, 2.3))
+    arrow(ax, (2.65, 2.1), (2.05, 2.1))
+    arrow(ax, (4.55, 2.2), (5.15, 2.2))
+    arrow(ax, (7.05, 2.2), (7.65, 2.2))
+    arrow(ax, (8.6, 1.75), (8.6, 1.05))
+    ax.text(8.75, 1.4, "sound", va="center", fontsize=13, color=GREY)
+    arrow(ax, (8.2, 2.68), (4.0, 2.68), curve=0.25)
+    ax.text(
+        6.1, 3.45, "wrong: the concern goes back to the agent", ha="center", fontsize=13, color=GREY
+    )
+    arrow(ax, (3.6, 1.75), (3.6, 1.05), dashed=True)
+    ax.text(3.75, 1.4, "still disagree (planned)", va="center", fontsize=13, color=GREY)
+    fig.tight_layout()
+    fig.savefig(HERE / "nov27-0-architecture.png")
+
+
+def equations() -> None:
+    """The uncertainty measure, the threshold fit and the intervention rule, as images."""
+    lines = {
+        "uncertainty": r"$U(s) \;=\; 1 \;-\; \frac{1}{N}\,\max_{a}\; n_a(s), \qquad N = 10$",
+        "threshold": (
+            r"$\tau^{*} \;=\; \arg\max_{\tau}\; \mathrm{caught}(\tau)"
+            r"\quad \mathrm{subject\ to} \quad "
+            r"\frac{\mathrm{calls}(\tau)}{\mathrm{episodes}} \;\leq\; B$"
+        ),
+        "rule": (
+            r"$\mathrm{intervene\ when} \quad "
+            r"P(\mathrm{error} \mid \mathrm{flag}) \,\cdot\, q \;>\; c$"
+        ),
+    }
+    with plt.rc_context({"mathtext.fontset": "stix"}):
+        for name, text in lines.items():
+            fig = plt.figure(figsize=(6, 0.7))
+            fig.text(0.5, 0.5, text, ha="center", va="center", fontsize=19)
+            fig.savefig(HERE / f"nov27-eq-{name}.png", pad_inches=0.05)
+            plt.close(fig)
+
+
 if __name__ == "__main__":
+    architecture_figure()
+    equations()
     certainty_figure()
     sources_figure()
     signals_figure()
